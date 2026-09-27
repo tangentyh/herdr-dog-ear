@@ -58,6 +58,18 @@ It reads the system clipboard (`pbpaste`, `wl-paste`, `xclip`, or `xsel`) and ru
 extraction as the selection route. If nothing on the clipboard resolves to a file on disk, it
 does nothing. `OPEN_IN_EDITOR_CLIP` overrides the clipboard for testing.
 
+**Line and column.** A trailing `:line` or `:line:col` on any route is passed through to the
+editor rather than dropped, so `src/main.rs:42` opens at line 42. The flag is chosen from
+`$EDITOR`:
+
+| Editor | Invocation |
+|---|---|
+| `code`, `codium` | `code -g file:line:col` |
+| `zed`, `hx`, `subl` | `zed file:line:col` |
+| `nano` | `nano +line,col` |
+| `emacs`, `emacsclient` | `emacs +line:col` |
+| anything else (vi, vim, nvim, …) | `vim +line`; `+call cursor(line,col)` when a column is given |
+
 Every route opens the file in a new pane split to the right of the current tab, with the pane's
 cwd set to the file's directory.
 
@@ -96,7 +108,8 @@ herdr plugin log list --plugin open-in-editor
 
 # dry run without touching panes
 OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh
-OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs bash open-in-editor.sh --clipboard
+OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42 bash open-in-editor.sh --clipboard
+EDITOR=code OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42:7 bash open-in-editor.sh --clipboard
 
 # emit a clickable OSC 8 file link to test the handler, in a pane:
 printf '\e]8;;file:///tmp/probe.txt\e\\FILE\e]8;;\e\\\n'

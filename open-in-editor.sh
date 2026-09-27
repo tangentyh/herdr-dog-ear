@@ -3,12 +3,15 @@
 #
 # Ctrl-click a file link, select any text, OR pass --clipboard to read the system
 # clipboard; opens the file in $EDITOR in a new pane split off the current tab.
+# A trailing :line or :line:col on the candidate is passed to the editor too
+# (vim +<line>, code -g file:line:col, ...).
 #
 # Context arrives through herdr plugin env vars:
 #   HERDR_PLUGIN_CLICKED_URL   set for link_handlers invocations
 #   HERDR_PLUGIN_CONTEXT_JSON  full context; .selected_text for selection invocations
 #
 # Dry run: OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh
+# Line dry run: OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42 bash open-in-editor.sh --clipboard
 # Clipboard dry run: OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs bash open-in-editor.sh --clipboard
 set -uo pipefail
 
@@ -40,10 +43,13 @@ read_clipboard() {
   fi
 }
 
-# Print an absolute, existing path for a candidate, or nothing.
+# Resolve a candidate into the globals norm_path/norm_line/norm_col. Returns 0
+# when it names something that exists on disk. A trailing :line or :line:col is
+# peeled off and kept for the editor invocation, not discarded.
 normalize() {
   local t=$1 path rest
-  [ -n "$t" ] || return 0
+  norm_path=""; norm_line=""; norm_col=""
+  [ -n "$t" ] || return 1
   case "$t" in
     file://*)
       rest=${t#file://}
@@ -53,17 +59,24 @@ normalize() {
       esac
       path=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.unquote(sys.argv[1]))' "$path")
       ;;
-    *://*) return 0 ;;                    # http(s) etc: not ours
+    *://*) return 1 ;;                    # http(s) etc: not ours
     *) path=$t ;;
   esac
 
-  path=$(printf '%s' "$path" | sed -E 's/:[0-9]+(:[0-9]+)?$//')   # strip :line:col
+  # Peel a trailing :line[:col] before checking the filesystem.
+  if [[ $path =~ ^(.*):([0-9]+):([0-9]+)$ ]]; then
+    path=${BASH_REMATCH[1]}; norm_line=${BASH_REMATCH[2]}; norm_col=${BASH_REMATCH[3]}
+  elif [[ $path =~ ^(.*):([0-9]+)$ ]]; then
+    path=${BASH_REMATCH[1]}; norm_line=${BASH_REMATCH[2]}
+  fi
+
   case "$path" in '~/'*) path="$HOME/${path#\~/}" ;; esac
   if [ "${path#/}" = "$path" ]; then
     path="$(pane_cwd)/$path"
   fi
 
-  [ -e "$path" ] && printf '%s' "$path"
+  [ -e "$path" ] || return 1
+  norm_path=$path
   return 0
 }
 
@@ -104,11 +117,14 @@ else
 fi
 
 # --- first candidate that resolves to something on disk ---------------------
-path=""
+path=""; line=""; col=""
 while IFS= read -r c; do
   [ -n "$c" ] || continue
-  p=$(normalize "$c")
-  if [ -n "$p" ]; then path=$p; log "matched: $c"; break; fi
+  if normalize "$c"; then
+    path=$norm_path; line=$norm_line; col=$norm_col
+    log "matched: $c"
+    break
+  fi
 done <<EOF
 $cands
 EOF
@@ -120,9 +136,36 @@ fi
 
 # --- open it ----------------------------------------------------------------
 if [ -d "$path" ]; then dir=$path; else dir=$(dirname "$path"); fi
-log "open: $path"
+loc=""
+[ -n "$line" ] && loc=" line $line" && [ -n "$col" ] && loc="$loc:$col"
+log "open: $path$loc"
 
-cmd="exec \${EDITOR:-vi} -- $(printf '%q' "$path")"
+# Map :line[:col] onto the editor's own flag. Unknown editors get `+<line>`,
+# the near-universal convention; vi-family uses +call cursor() when a column is
+# known. The path is absolute by now, so `--` is belt-and-braces, not required.
+editor=${EDITOR:-vi}
+editor_bin=${editor%% *}; editor_bin=${editor_bin##*/}
+args=()
+if [ -n "$line" ]; then
+  case "$editor_bin" in
+    code|code-insiders|codium)
+      args+=(-g "$path:$line${col:+:$col}") ;;   # location rides in the goto arg
+    zed|hx|helix|subl|sublime_text)
+      args+=(-- "$path:$line${col:+:$col}") ;;
+    nano)
+      args+=("+$line${col:+,$col}" -- "$path") ;;
+    emacs|emacsclient)
+      args+=("+$line${col:+:$col}" "$path") ;;
+    *)
+      if [ -n "$col" ]; then args+=("+call cursor($line,$col)" -- "$path")
+      else args+=("+$line" -- "$path"); fi ;;
+  esac
+else
+  args+=(-- "$path")
+fi
+
+cmd="exec $editor"
+for a in "${args[@]}"; do cmd="$cmd $(printf '%q' "$a")"; done
 
 if [ "${OPEN_IN_EDITOR_DRY:-0}" = "1" ]; then
   log "dry-run: split right cwd=$dir ; run: $cmd"
