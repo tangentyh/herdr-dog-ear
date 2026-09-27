@@ -139,7 +139,9 @@ split=$("$HERDR" pane split "${target_args[@]}" --direction right --cwd "$dir" 2
 pane=$(printf '%s' "$split" | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
 if [ -z "$pane" ]; then log "error: split failed: $split"; exit 1; fi
 
-if "$HERDR" pane run "$pane" "$cmd" >/dev/null 2>&1; then
+# Prefix with a space so a zsh pane running `setopt hist_ignore_space`
+# (oh-my-zsh default) does not record the injected command in its history.
+if "$HERDR" pane run "$pane" " $cmd" >/dev/null 2>&1; then
   log "opened in pane $pane"
 else
   log "error: pane run failed in $pane"
