@@ -66,8 +66,9 @@ cwd set to the file's directory.
 `src/main.rs:42` in a terminal is **not** a link span, and no `link_handlers` pattern can make it
 one — spans only begin at `http(s)://`
 ([herdr#1699](https://github.com/herdrdev/herdr/discussions/1699)). Ctrl-clicking a bare path does
-nothing. For bare paths, use the **selection** route. The `file-path` link handler in the manifest
-is a hedge for future herdr support; it is dead code on stock herdr today.
+nothing. For bare paths, use the **selection** route. The plugin deliberately ships no bare-path
+link handler: a `link_handlers` pattern only filters links herdr has already detected, and herdr
+never detects a bare path, so such a handler could never fire.
 
 ## What arrives in the action
 

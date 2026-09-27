@@ -26,10 +26,3 @@ id = "file-url"
 title = "Open file link in $EDITOR"
 pattern = '^file://'
 action = "edit-file"
-
-# OSC 8 links whose target is a bare path (some tools emit this form).
-[[link_handlers]]
-id = "file-path"
-title = "Open path in $EDITOR"
-pattern = '^~?[\w.@/()\[\]+-]+/[\w.@()\[\]+-]+\.[A-Za-z]\w*(?::\d+){0,2}$'
-action = "edit-file"
