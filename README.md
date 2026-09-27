@@ -43,7 +43,22 @@ The action tries the whole first selected line first (so paths containing spaces
 every whitespace-delimited token with wrapping punctuation stripped. The first candidate that
 exists on disk wins.
 
-Both routes open the file in a new pane split to the right of the current tab, with the pane's
+**Clipboard.** herdr does not hand selected text to plugins, so if the selection route is
+unavailable, copy the path and invoke the clipboard action from a key:
+
+```toml
+[[keys.command]]
+key = "prefix+shift+o"
+type = "plugin_action"
+command = "open-in-editor.edit-clipboard"
+description = "open clipboard path in $EDITOR"
+```
+
+It reads the system clipboard (`pbpaste`, `wl-paste`, `xclip`, or `xsel`) and runs the same
+extraction as the selection route. If nothing on the clipboard resolves to a file on disk, it
+does nothing. `OPEN_IN_EDITOR_CLIP` overrides the clipboard for testing.
+
+Every route opens the file in a new pane split to the right of the current tab, with the pane's
 cwd set to the file's directory.
 
 ## Caveat: bare paths are not detected as links
@@ -80,6 +95,7 @@ herdr plugin log list --plugin open-in-editor
 
 # dry run without touching panes
 OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh
+OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs bash open-in-editor.sh --clipboard
 
 # emit a clickable OSC 8 file link to test the handler, in a pane:
 printf '\e]8;;file:///tmp/probe.txt\e\\FILE\e]8;;\e\\\n'

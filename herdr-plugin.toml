@@ -2,7 +2,7 @@ id = "open-in-editor"
 name = "Open in $EDITOR"
 version = "0.1.0"
 min_herdr_version = "0.9.0"
-description = "Ctrl-click a file link to open it in $EDITOR, in a new pane split off the current tab."
+description = "Open a file link, selection, or clipboard path in $EDITOR, in a new pane split off the current tab."
 platforms = ["macos", "linux"]
 
 [[actions]]
@@ -10,6 +10,15 @@ id = "edit-file"
 title = "Open in $EDITOR"
 contexts = ["pane", "selection"]
 command = ["bash", "open-in-editor.sh"]
+
+# Reads the system clipboard instead of the selection context. Useful because
+# herdr does not hand selected text to plugins; copy the path first, then bind a
+# key to this action.
+[[actions]]
+id = "edit-clipboard"
+title = "Open clipboard in $EDITOR"
+contexts = ["pane"]
+command = ["bash", "open-in-editor.sh", "--clipboard"]
 
 # OSC 8 file:// hyperlinks (agents emit these).
 [[link_handlers]]

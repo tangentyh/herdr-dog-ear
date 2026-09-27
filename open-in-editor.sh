@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # open-in-editor — herdr plugin action.
 #
-# Ctrl-click a file link, OR select any text and invoke the action from a key:
-# opens the file in $EDITOR in a new pane split off the current tab.
+# Ctrl-click a file link, select any text, OR pass --clipboard to read the system
+# clipboard; opens the file in $EDITOR in a new pane split off the current tab.
 #
 # Context arrives through herdr plugin env vars:
 #   HERDR_PLUGIN_CLICKED_URL   set for link_handlers invocations
 #   HERDR_PLUGIN_CONTEXT_JSON  full context; .selected_text for selection invocations
 #
 # Dry run: OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh
+# Clipboard dry run: OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs bash open-in-editor.sh --clipboard
 set -uo pipefail
 
 log() { printf 'open-in-editor: %s\n' "$*"; }
@@ -22,6 +23,21 @@ pane_cwd() {
   [ -n "$cwd" ] || cwd=$(ctx '.focused_pane_cwd // empty')
   [ -n "$cwd" ] || cwd=$PWD
   printf '%s' "$cwd"
+}
+
+# Read the system clipboard, cross-platform. OPEN_IN_EDITOR_CLIP overrides it
+# (used by the dry-run smoke test).
+read_clipboard() {
+  if [ -n "${OPEN_IN_EDITOR_CLIP:-}" ]; then printf '%s' "$OPEN_IN_EDITOR_CLIP"; return; fi
+  if command -v pbpaste >/dev/null 2>&1; then
+    pbpaste
+  elif command -v wl-paste >/dev/null 2>&1; then
+    wl-paste --no-newline 2>/dev/null || wl-paste
+  elif command -v xclip >/dev/null 2>&1; then
+    xclip -selection clipboard -o 2>/dev/null
+  elif command -v xsel >/dev/null 2>&1; then
+    xsel --clipboard --output 2>/dev/null
+  fi
 }
 
 # Print an absolute, existing path for a candidate, or nothing.
@@ -51,9 +67,31 @@ normalize() {
   return 0
 }
 
-# --- build candidate list ---------------------------------------------------
+# --- gather source text -----------------------------------------------------
+mode=link
+for arg in "$@"; do
+  case "$arg" in --clipboard) mode=clipboard ;; esac
+done
+
+# whole first line first (a path containing spaces survives),
+# then every whitespace-delimited token with wrapping punctuation stripped
+candidates_from() {
+  printf '%s\n' "$1" | head -1
+  printf '%s' "$1" \
+    | tr ' \t' '\n\n' \
+    | sed -E "s/^[\`'\"(<[]+//; s/[]\`'\"()>.,;]+$//"
+}
+
 cands=""
-if [ -n "${HERDR_PLUGIN_CLICKED_URL:-}" ]; then
+if [ "$mode" = clipboard ]; then
+  clip=$(read_clipboard)
+  if [ -z "$clip" ]; then
+    log "skip: clipboard empty (or no pbpaste/wl-paste/xclip/xsel available)"
+    exit 0
+  fi
+  log "clipboard: $(printf '%s' "$clip" | head -1)"
+  cands=$(candidates_from "$clip")
+elif [ -n "${HERDR_PLUGIN_CLICKED_URL:-}" ]; then
   cands=${HERDR_PLUGIN_CLICKED_URL}
 else
   sel=$(ctx '.selected_text // empty')
@@ -62,13 +100,7 @@ else
     log "  ctx: ${ctx_json:-<unset>}"
     exit 0
   fi
-  # whole first line first (a path containing spaces survives),
-  # then every whitespace-delimited token with wrapping punctuation stripped
-  cands=$(printf '%s' "$sel" | head -1)
-  cands="$cands
-$(printf '%s' "$sel" \
-    | tr ' \t' '\n\n' \
-    | sed -E "s/^[\`'\"(<[]+//; s/[\`'\"()>\].,;]+$//")"
+  cands=$(candidates_from "$sel")
 fi
 
 # --- first candidate that resolves to something on disk ---------------------
