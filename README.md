@@ -1,7 +1,8 @@
 # herdr-dog-ear
 
-**Ctrl-click a `file://` link — or select any text that names a path — and it opens in `$EDITOR`
-in a pane split off the current tab.**
+**Ctrl-click a `file://` link — or select any text that names a path — and it opens in `$EDITOR`:
+a vi-family editor already running in the current tab is reused, otherwise a new pane splits off
+the tab.**
 
 Works with whatever `$EDITOR` is set to. No picker, no repo scan, no editor-specific integration.
 One action handles both a ctrl-clicked link and a keyboard-invoked selection.
@@ -75,8 +76,32 @@ editor rather than dropped, so `src/main.rs:42` opens at line 42. The flag is ch
 | `emacs`, `emacsclient` | `emacs +line:col` |
 | anything else (vi, vim, nvim, …) | `vim +line`; `+call cursor(line,col)` when a column is given |
 
-Every route opens the file in a new pane split off the current tab (to the **right** by default;
-see below), with the pane's cwd set to the file's directory.
+Every route opens the file in a new pane split off the current tab — **right** by default — with
+the pane's cwd set to the file's directory. The one exception is a reused editor pane (below).
+
+## Pane reuse
+
+Clicking file after file in one tab used to leave a trail of editor panes. By default the action
+now reuses an editor pane **already running in the current tab** instead of splitting another one:
+
+1. It lists the panes in this tab (`herdr pane list --workspace "$HERDR_WORKSPACE_ID"`, keeping
+   `tab_id == "$HERDR_TAB_ID"`) and asks each one for its foreground process
+   (`herdr pane process-info`).
+2. If **exactly one** pane is running `$EDITOR` (basename of its first word — the same rule used
+   for argument mapping), the file opens there. vi-family (`vi`, `vim`, `nvim`, …) receives
+   `:edit <path>` and, when the candidate carried a line/column, `:call cursor(<line>[, <col>])`.
+   Filenames are escaped like vim's `fnameescape()`, so spaces and `%`/`#` survive.
+3. Otherwise — no editor pane, more than one, or an editor with no generic "open in the running
+   instance" protocol — it falls back to the existing split.
+
+Set `OPEN_IN_EDITOR_REUSE=0` to always split, reproducing the previous behavior.
+
+**Reuse is vi-family only, on purpose.** `$EDITOR` values such as `code`, `zed`, or `emacs` can
+open in an existing window, but only by invoking their CLI against that window; there is no
+generic "open in the running instance" protocol, and the process table alone does not say
+reliably which pane hosts it. Sending guessed keystrokes to a foreign TUI is worse than an extra
+pane, so those editors always split. Keys are never sent to a pane that did not match `$EDITOR`
+exactly.
 
 **Split direction.** Set `OPEN_IN_EDITOR_SPLIT_DIRECTION` to `right` (default) or `down` to
 choose where the new pane appears. Any other value is ignored with a warning and `right` is used,
@@ -135,6 +160,8 @@ OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh
 OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42 bash open-in-editor.sh --clipboard
 EDITOR=code OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42:7 bash open-in-editor.sh --clipboard
 OPEN_IN_EDITOR_SPLIT_DIRECTION=down OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=../sibling/file.rs bash open-in-editor.sh --clipboard
+# force the old always-split behavior
+OPEN_IN_EDITOR_REUSE=0 OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs bash open-in-editor.sh --clipboard
 
 # emit a clickable OSC 8 file link to test the handler, in a pane:
 printf '\e]8;;file:///tmp/probe.txt\e\\FILE\e]8;;\e\\\n'

@@ -2,7 +2,7 @@ id = "open-in-editor"
 name = "Open in $EDITOR"
 version = "0.1.0"
 min_herdr_version = "0.9.0"
-description = "Open a file link, selection, or clipboard path in $EDITOR, in a new pane split off the current tab."
+description = "Open a file link, selection, or clipboard path in $EDITOR, reusing a vi-family editor pane already in the tab or splitting a new one."
 platforms = ["macos", "linux"]
 
 [[actions]]
