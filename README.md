@@ -168,6 +168,28 @@ printf '\e]8;;file:///tmp/probe.txt\e\\FILE\e]8;;\e\\\n'
 # then ctrl-click FILE (not cmd-click)
 ```
 
+## Testing
+
+```sh
+bash tests/run.sh
+```
+
+A dependency-light smoke/unit suite: pure bash plus POSIX tools, no `bats` or `python3`. It prints
+one `PASS`/`FAIL`/`SKIP` line per case and exits non-zero if any case fails.
+
+The suite is hermetic. It creates a `mktemp -d` sandbox (removed on exit) for fixtures and logs,
+and every `herdr` call is intercepted by the stub in `tests/stub/herdr` — nothing touches the live
+session, and no panes, tabs, or workspaces are created. The stub records each invocation's argv
+and returns the JSON `pane split` reply and a successful `pane run`, so the non-dry path is
+covered too.
+
+Cases cover: `candidates_from()` (spaces, quotes, trailing punctuation, whitespace tokens),
+`urldecode()` (percent-encoded UTF-8 as raw bytes, literal `%`, `%20`), `normalize()`
+(`file://` URLs with empty/named host, absolute/relative/`~/` paths, `:line`, `:line:col`,
+rejections), the `$EDITOR` line/column flag mapping, the selection/clicked-URL/clipboard routes
+plus the empty-clipboard skip, the missing-`jq` guard, and the stub `pane split`/`pane run`
+argv. If `jq` is not installed, the cases that need it report `SKIP` instead of failing.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
