@@ -19,7 +19,19 @@ log() { printf 'open-in-editor: %s\n' "$*"; }
 
 HERDR=${HERDR_BIN_PATH:-herdr}
 ctx_json=${HERDR_PLUGIN_CONTEXT_JSON:-}
-ctx() { [ -n "$ctx_json" ] && printf '%s' "$ctx_json" | jq -r "$1" 2>/dev/null; }
+
+# jq is a hard runtime dependency: it reads the context JSON and the pane id
+# from `herdr pane split`. Detect it once so a missing jq is a loud, actionable
+# error instead of a silent "nothing clicked or selected" no-op.
+if command -v jq >/dev/null 2>&1; then
+  HAVE_JQ=1
+else
+  HAVE_JQ=0
+  log "error: jq not found on PATH; it is required to read plugin context and pane ids"
+  log "  install: brew install jq | sudo apt install jq | sudo dnf install jq"
+fi
+
+ctx() { [ -n "$ctx_json" ] && [ "$HAVE_JQ" = 1 ] && printf '%s' "$ctx_json" | jq -r "$1" 2>/dev/null; }
 
 pane_cwd() {
   local cwd=${HERDR_ACTIVE_PANE_CWD:-}
@@ -43,6 +55,25 @@ read_clipboard() {
   fi
 }
 
+# Percent-decode a URL path, replacing the old python3/urllib one-liner. A
+# literal "%" not followed by two hex digits is left alone, so the tempting
+# `printf '%b' "${s//%/\\x}"` shortcut would be wrong here: it emits a literal
+# \x and mangles paths like "100% done.txt".
+urldecode() {
+  local s=$1 out="" n
+  while [ -n "$s" ]; do
+    case $s in
+      %[0-9a-fA-F][0-9a-fA-F]*)
+        n=$((16#${s:1:2}))
+        printf -v n '\\%03o' "$n"          # raw byte, not a codepoint
+        out+=$(printf '%b' "$n")
+        s=${s:3} ;;
+      *) out+=${s:0:1}; s=${s:1} ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
 # Resolve a candidate into the globals norm_path/norm_line/norm_col. Returns 0
 # when it names something that exists on disk. A trailing :line or :line:col is
 # peeled off and kept for the editor invocation, not discarded.
@@ -57,7 +88,7 @@ normalize() {
         /*) path=$rest ;;                 # file:///abs/path (empty host)
         *)  path=/${rest#*/} ;;           # file://host/abs/path (named host)
       esac
-      path=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.unquote(sys.argv[1]))' "$path")
+      path=$(urldecode "$path")
       ;;
     *://*) return 1 ;;                    # http(s) etc: not ours
     *) path=$t ;;
@@ -109,6 +140,7 @@ elif [ -n "${HERDR_PLUGIN_CLICKED_URL:-}" ]; then
 else
   sel=$(ctx '.selected_text // empty')
   if [ -z "$sel" ]; then
+    [ "$HAVE_JQ" = 1 ] || exit 1        # jq error already reported above
     log "skip: nothing clicked or selected"
     log "  ctx: ${ctx_json:-<unset>}"
     exit 0
@@ -179,6 +211,10 @@ else
 fi
 
 split=$("$HERDR" pane split "${target_args[@]}" --direction right --cwd "$dir" 2>&1)
+if [ "$HAVE_JQ" != 1 ]; then
+  log "error: jq required to read the pane id; got: $split"
+  exit 1
+fi
 pane=$(printf '%s' "$split" | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
 if [ -z "$pane" ]; then log "error: split failed: $split"; exit 1; fi
 

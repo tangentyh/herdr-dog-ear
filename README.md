@@ -9,6 +9,11 @@ One action handles both a ctrl-clicked link and a keyboard-invoked selection.
 > **Requires herdr ≥ 0.9.0.** `file://` OSC-8 link clicks did not reach plugin `link_handlers`
 > before 0.9.0 ([herdr#2941](https://github.com/herdrdev/herdr/issues/2941)). The version floor is
 > load-bearing.
+>
+> **Requires `jq`.** The action reads the plugin context JSON and the `herdr pane split` reply
+> through it. Without `jq` it reports the missing dependency with an install hint
+> (`brew install jq` · `sudo apt install jq` · `sudo dnf install jq`) and cannot open anything —
+> it never fails silently. No Python needed: percent-decoding is done in bash.
 
 ## Install
 
