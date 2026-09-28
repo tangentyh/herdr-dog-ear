@@ -2,9 +2,10 @@
 # open-in-editor — herdr plugin action.
 #
 # Ctrl-click a file link, select any text, OR pass --clipboard to read the system
-# clipboard; opens the file in $EDITOR in a new pane split off the current tab.
-# A trailing :line or :line:col on the candidate is passed to the editor too
-# (vim +<line>, code -g file:line:col, ...).
+# clipboard; opens the file in $EDITOR. A vi-family editor already running in the
+# current tab is reused via `:edit`; every other case splits a new pane off the
+# current tab. A trailing :line or :line:col on the candidate is passed to the
+# editor too (vim +<line>, code -g file:line:col, ...).
 #
 # Context arrives through herdr plugin env vars:
 #   HERDR_PLUGIN_CLICKED_URL   set for link_handlers invocations
@@ -15,6 +16,7 @@
 # Dry run: OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh
 # Line dry run: OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42 bash open-in-editor.sh --clipboard
 # Clipboard dry run: OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs bash open-in-editor.sh --clipboard
+# Always split: OPEN_IN_EDITOR_REUSE=0 bash open-in-editor.sh
 set -uo pipefail
 
 log() { printf 'open-in-editor: %s\n' "$*"; }
@@ -204,6 +206,68 @@ if [ -z "$path" ]; then
   exit 0
 fi
 
+# --- pane reuse -------------------------------------------------------------
+# vi-family editors accept `:edit <file>` inside the running instance, so a
+# click can retarget the editor pane already in this tab instead of splitting a
+# new one. Other editors get the split: there is no generic "open in the running
+# instance" protocol, and sending guessed keystrokes to a foreign TUI is worse
+# than an extra pane. Keys are never sent to an arbitrary pane: the send path is
+# reachable only after find_reusable_pane matched $editor_bin exactly once.
+vi_family() {
+  case "$1" in
+    vi|vim|nvim|vim.basic|vim.tiny|vim.gtk|vimx|gvim|gview|nvim-qt|vi.basic|vi.tiny)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Escape a filename for a vim ex command (:edit). Mirrors fnameescape(): the
+# characters vim treats specially on the command line get a backslash, as do a
+# leading `+`/`>`. Paths are absolute here, so `#`/`%` would otherwise expand to
+# the alternate/current file name.
+vim_escape() {
+  local s=$1 out="" c i
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    case "$c" in
+      $'\n') out+='\n' ;;
+      ' ' | $'\t' | '*' | '?' | '[' | '{' | '`' | '$' | '\' | '%' | '#' | "'" | '"' | '|' | '!' | '<')
+        out+="\\$c" ;;
+      *) out+=$c ;;
+    esac
+  done
+  case "$out" in '+'* | '>'*) out="\\$out" ;; esac
+  printf '%s' "$out"
+}
+
+# Print the id of the single pane in the current tab whose foreground-process
+# basename is $1, or nothing when there is not exactly one. Read-only.
+find_reusable_pane() {
+  local want=$1 panes pids pid info names n found="" count=0
+  [ -n "${HERDR_WORKSPACE_ID:-}" ] && [ -n "${HERDR_TAB_ID:-}" ] || return 1
+  panes=$("$HERDR" pane list --workspace "$HERDR_WORKSPACE_ID" 2>/dev/null) || return 1
+  pids=$(printf '%s' "$panes" \
+    | jq -r --arg tab "$HERDR_TAB_ID" \
+        '.result.panes[]? | select(.tab_id == $tab) | .pane_id' 2>/dev/null)
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    info=$("$HERDR" pane process-info --pane "$pid" 2>/dev/null) || continue
+    names=$(printf '%s' "$info" | jq -r \
+      '.result.process_info.foreground_processes[]? | [.argv0, .name, (.argv[0]?)] | .[] | select(. != null)' 2>/dev/null)
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      if [ "${n##*/}" = "$want" ]; then
+        found=$pid; count=$((count + 1)); break
+      fi
+    done <<EOF
+$names
+EOF
+  done <<EOF
+$pids
+EOF
+  [ "$count" -eq 1 ] && printf '%s' "$found"
+}
+
 # --- open it ----------------------------------------------------------------
 if [ -d "$path" ]; then dir=$path; else dir=$(dirname "$path"); fi
 loc=""
@@ -237,9 +301,41 @@ fi
 cmd="exec $editor"
 for a in "${args[@]}"; do cmd="$cmd $(printf '%q' "$a")"; done
 
+# Reuse an existing editor pane in this tab when it is safe: exactly one pane in
+# the tab is running the same vi-family editor. OPEN_IN_EDITOR_REUSE=0 restores
+# the always-split behavior.
+reuse_pane=""
+reuse_cmd=""
+if [ "${OPEN_IN_EDITOR_REUSE:-1}" != "0" ] && vi_family "$editor_bin" && [ "$HAVE_JQ" = 1 ]; then
+  reuse_pane=$(find_reusable_pane "$editor_bin")
+  if [ -n "$reuse_pane" ]; then
+    reuse_cmd=":edit $(vim_escape "$path")"
+    if [ -n "$line" ]; then
+      if [ -n "$col" ]; then reuse_cmd="$reuse_cmd | call cursor($line,$col)"
+      else reuse_cmd="$reuse_cmd | call cursor($line)"; fi
+    fi
+  fi
+fi
+
 if [ "${OPEN_IN_EDITOR_DRY:-0}" = "1" ]; then
-  log "dry-run: split $split_direction cwd=$dir ; run: $cmd"
+  if [ -n "$reuse_pane" ]; then
+    log "dry-run: reuse pane $reuse_pane: $reuse_cmd"
+  else
+    log "dry-run: split $split_direction cwd=$dir ; run: $cmd"
+  fi
   exit 0
+fi
+
+# Guarded send: only reached when find_reusable_pane matched $editor_bin in
+# this tab. Esc first normalizes insert/command-line mode.
+if [ -n "$reuse_pane" ]; then
+  if "$HERDR" pane send-keys "$reuse_pane" esc >/dev/null 2>&1 \
+     && "$HERDR" pane send-text "$reuse_pane" "$reuse_cmd" >/dev/null 2>&1 \
+     && "$HERDR" pane send-keys "$reuse_pane" enter >/dev/null 2>&1; then
+    log "reused pane $reuse_pane: $reuse_cmd"
+    exit 0
+  fi
+  log "error: reuse in pane $reuse_pane failed; opening in a split"
 fi
 
 if [ -n "${HERDR_PANE_ID:-}" ]; then
