@@ -441,8 +441,24 @@ case_reuse_vi_pane() { # #4: a vi-family pane in the current tab is reused
   out=$(run_plugin --clipboard 2>&1); rc=$?
   assert_status "exit" 0 "$rc" || return 1
   assert_contains "reuse logged" "$out" "reused pane wTest:p7" || return 1
-  assert_contains "edit sent to reused pane" "$(stub_log)" \
-    "<pane> <send-text> <wTest:p7> <:edit $FIX/plain.txt | call cursor(42)>" || return 1
+  assert_contains "tab drop sent to reused pane" "$(stub_log)" \
+    "<pane> <send-text> <wTest:p7> <:tab drop $FIX/plain.txt | call cursor(42)>" || return 1
+  assert_not_contains "no split when reused" "$(stub_log)" '<split>' || return 1
+  unset HERDR_WORKSPACE_ID HERDR_TAB_ID STUB_PANE_LIST STUB_PROCESS_INFO
+}
+
+case_reuse_vi_tabless() { # #4: tabless vi falls back to :edit in the reused pane
+  require_jq || return 77
+  reset_stub
+  export EDITOR=vi OPEN_IN_EDITOR_CLIP="$FIX/plain.txt"
+  export HERDR_WORKSPACE_ID=wTest HERDR_TAB_ID=wTest:t1
+  export STUB_PANE_LIST='{"result":{"panes":[{"pane_id":"wTest:p7","tab_id":"wTest:t1"}]}}'
+  export STUB_PROCESS_INFO='{"result":{"process_info":{"foreground_processes":[{"argv0":"vi","name":"vi"}]}}}'
+  local rc
+  run_plugin --clipboard >/dev/null 2>&1; rc=$?
+  assert_status "exit" 0 "$rc" || return 1
+  assert_contains "edit fallback sent" "$(stub_log)" \
+    "<pane> <send-text> <wTest:p7> <:edit $FIX/plain.txt>" || return 1
   assert_not_contains "no split when reused" "$(stub_log)" '<split>' || return 1
   unset HERDR_WORKSPACE_ID HERDR_TAB_ID STUB_PANE_LIST STUB_PROCESS_INFO
 }
@@ -482,6 +498,7 @@ run_case "non-dry: stub pane split + pane run leading space"       case_non_dry_
 run_case "#5: split direction env + invalid fallback"             case_split_direction
 run_case "#5: ../ candidate outside pane cwd canonicalizes"        case_path_outside_cwd
 run_case "#4: reuse a vi-family pane in the current tab"         case_reuse_vi_pane
+run_case "#4: tabless vi falls back to :edit in reused pane"    case_reuse_vi_tabless
 run_case "#4: OPEN_IN_EDITOR_REUSE=0 restores split-always"      case_reuse_disabled
 
 # --- summary ----------------------------------------------------------------
