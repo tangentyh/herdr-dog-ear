@@ -75,8 +75,20 @@ editor rather than dropped, so `src/main.rs:42` opens at line 42. The flag is ch
 | `emacs`, `emacsclient` | `emacs +line:col` |
 | anything else (vi, vim, nvim, …) | `vim +line`; `+call cursor(line,col)` when a column is given |
 
-Every route opens the file in a new pane split to the right of the current tab, with the pane's
-cwd set to the file's directory.
+Every route opens the file in a new pane split off the current tab (to the **right** by default;
+see below), with the pane's cwd set to the file's directory.
+
+**Split direction.** Set `OPEN_IN_EDITOR_SPLIT_DIRECTION` to `right` (default) or `down` to
+choose where the new pane appears. Any other value is ignored with a warning and `right` is used,
+so a typo never breaks the action. Set it in the environment herdr (and therefore the action) is
+launched from, or try it in a dry run:
+
+```sh
+OPEN_IN_EDITOR_SPLIT_DIRECTION=down OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh --clipboard
+```
+
+The value flows into both the real `herdr pane split --direction ...` call and the
+`OPEN_IN_EDITOR_DRY=1` log line.
 
 ## Caveat: bare paths are not detected as links
 
@@ -115,6 +127,7 @@ herdr plugin log list --plugin open-in-editor
 OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh
 OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42 bash open-in-editor.sh --clipboard
 EDITOR=code OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42:7 bash open-in-editor.sh --clipboard
+OPEN_IN_EDITOR_SPLIT_DIRECTION=down OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=../sibling/file.rs bash open-in-editor.sh --clipboard
 
 # emit a clickable OSC 8 file link to test the handler, in a pane:
 printf '\e]8;;file:///tmp/probe.txt\e\\FILE\e]8;;\e\\\n'

@@ -10,6 +10,8 @@
 #   HERDR_PLUGIN_CLICKED_URL   set for link_handlers invocations
 #   HERDR_PLUGIN_CONTEXT_JSON  full context; .selected_text for selection invocations
 #
+# Split direction: OPEN_IN_EDITOR_SPLIT_DIRECTION=right (default) or down.
+#
 # Dry run: OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh
 # Line dry run: OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs:42 bash open-in-editor.sh --clipboard
 # Clipboard dry run: OPEN_IN_EDITOR_DRY=1 OPEN_IN_EDITOR_CLIP=src/main.rs bash open-in-editor.sh --clipboard
@@ -19,6 +21,17 @@ log() { printf 'open-in-editor: %s\n' "$*"; }
 
 HERDR=${HERDR_BIN_PATH:-herdr}
 ctx_json=${HERDR_PLUGIN_CONTEXT_JSON:-}
+
+# Where the new pane goes. Only the values herdr's pane split accepts are
+# allowed; anything else is a typo, so warn loudly and keep the old default
+# rather than handing herdr a bad --direction.
+split_direction=${OPEN_IN_EDITOR_SPLIT_DIRECTION:-right}
+case "$split_direction" in
+  right|down) ;;
+  *)
+    log "warn: invalid OPEN_IN_EDITOR_SPLIT_DIRECTION='$split_direction' (expected right or down); using right"
+    split_direction=right ;;
+esac
 
 # jq is a hard runtime dependency: it reads the context JSON and the pane id
 # from `herdr pane split`. Detect it once so a missing jq is a loud, actionable
@@ -200,7 +213,7 @@ cmd="exec $editor"
 for a in "${args[@]}"; do cmd="$cmd $(printf '%q' "$a")"; done
 
 if [ "${OPEN_IN_EDITOR_DRY:-0}" = "1" ]; then
-  log "dry-run: split right cwd=$dir ; run: $cmd"
+  log "dry-run: split $split_direction cwd=$dir ; run: $cmd"
   exit 0
 fi
 
@@ -210,7 +223,7 @@ else
   target_args=(--current)
 fi
 
-split=$("$HERDR" pane split "${target_args[@]}" --direction right --cwd "$dir" 2>&1)
+split=$("$HERDR" pane split "${target_args[@]}" --direction "$split_direction" --cwd "$dir" 2>&1)
 if [ "$HAVE_JQ" != 1 ]; then
   log "error: jq required to read the pane id; got: $split"
   exit 1
