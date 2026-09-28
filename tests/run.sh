@@ -30,6 +30,9 @@ TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/open-in-editor-tests.XXXXXX") || {
   printf 'could not create a temp dir\n' >&2
   exit 2
 }
+# Resolve symlinks in the temp root once (macOS: /var -> /private/var) so the
+# absolute paths the plugin canonicalizes match the paths asserted below.
+TMPROOT=$(cd "$TMPROOT" && pwd -P)
 cleanup() { rm -rf "$TMPROOT"; }
 trap cleanup EXIT
 
@@ -102,6 +105,15 @@ assert_contains() { # label haystack needle
   esac
   printf '  assert_contains [%s] needle not found: [%s]\n    haystack:\n%s\n' "$1" "$3" "$2"
   return 1
+}
+
+assert_not_contains() { # label haystack needle
+  case "$2" in
+    *"$3"*)
+      printf '  assert_not_contains [%s] unexpected: [%s]\n    haystack:\n%s\n' "$1" "$3" "$2"
+      return 1 ;;
+  esac
+  return 0
 }
 
 assert_status() { # label expected actual
@@ -381,6 +393,76 @@ case_non_dry_split_and_run() {
   assert_contains "opened log" "$out" 'opened in pane wK:p999' || return 1
 }
 
+case_split_direction() { # #5: OPEN_IN_EDITOR_SPLIT_DIRECTION drives pane split
+  require_jq || return 77
+  local out rc
+
+  reset_stub
+  export EDITOR=vim OPEN_IN_EDITOR_CLIP="$FIX/plain.txt"
+  export OPEN_IN_EDITOR_SPLIT_DIRECTION=down
+  run_plugin --clipboard >/dev/null 2>&1; rc=$?
+  assert_status "down exit" 0 "$rc" || return 1
+  assert_contains "down argv" "$(stub_log)" \
+    "<pane> <split> <--current> <--direction> <down> <--cwd> <$FIX>" || return 1
+
+  reset_stub
+  export OPEN_IN_EDITOR_SPLIT_DIRECTION=sideways
+  out=$(run_plugin --clipboard 2>&1); rc=$?
+  assert_status "invalid exit" 0 "$rc" || return 1
+  assert_contains "invalid warns" "$out" \
+    "invalid OPEN_IN_EDITOR_SPLIT_DIRECTION='sideways'" || return 1
+  assert_contains "invalid falls back to right" "$(stub_log)" \
+    "<pane> <split> <--current> <--direction> <right> <--cwd> <$FIX>" || return 1
+
+  unset OPEN_IN_EDITOR_SPLIT_DIRECTION
+}
+
+case_path_outside_cwd() { # #5: ../ candidate outside the pane cwd canonicalizes
+  require_jq || return 77
+  local sibling="$TMPROOT/sibling" out rc
+  mkdir -p "$sibling"
+  printf 'outside\n' > "$sibling/outside.txt"
+  reset_stub
+  export EDITOR=vim HERDR_ACTIVE_PANE_CWD="$FIX" OPEN_IN_EDITOR_CLIP='../sibling/outside.txt'
+  out=$(run_plugin --clipboard 2>&1); rc=$?
+  assert_status "exit" 0 "$rc" || return 1
+  assert_contains "canonical open log" "$out" "open: $sibling/outside.txt" || return 1
+  assert_contains "cwd is the sibling dir" "$(stub_log)" "<--cwd> <$sibling>" || return 1
+}
+
+case_reuse_vi_pane() { # #4: a vi-family pane in the current tab is reused
+  require_jq || return 77
+  reset_stub
+  export EDITOR=vim OPEN_IN_EDITOR_CLIP="$FIX/plain.txt:42"
+  export HERDR_WORKSPACE_ID=wTest HERDR_TAB_ID=wTest:t1
+  export STUB_PANE_LIST='{"result":{"panes":[{"pane_id":"wTest:p7","tab_id":"wTest:t1"}]}}'
+  export STUB_PROCESS_INFO='{"result":{"process_info":{"foreground_processes":[{"argv0":"vim","name":"vim"}]}}}'
+  local out rc
+  out=$(run_plugin --clipboard 2>&1); rc=$?
+  assert_status "exit" 0 "$rc" || return 1
+  assert_contains "reuse logged" "$out" "reused pane wTest:p7" || return 1
+  assert_contains "edit sent to reused pane" "$(stub_log)" \
+    "<pane> <send-text> <wTest:p7> <:edit $FIX/plain.txt | call cursor(42)>" || return 1
+  assert_not_contains "no split when reused" "$(stub_log)" '<split>' || return 1
+  unset HERDR_WORKSPACE_ID HERDR_TAB_ID STUB_PANE_LIST STUB_PROCESS_INFO
+}
+
+case_reuse_disabled() { # #4: OPEN_IN_EDITOR_REUSE=0 restores split-always
+  require_jq || return 77
+  reset_stub
+  export EDITOR=vim OPEN_IN_EDITOR_CLIP="$FIX/plain.txt"
+  export HERDR_WORKSPACE_ID=wTest HERDR_TAB_ID=wTest:t1 OPEN_IN_EDITOR_REUSE=0
+  export STUB_PANE_LIST='{"result":{"panes":[{"pane_id":"wTest:p7","tab_id":"wTest:t1"}]}}'
+  export STUB_PROCESS_INFO='{"result":{"process_info":{"foreground_processes":[{"argv0":"vim","name":"vim"}]}}}'
+  local rc
+  run_plugin --clipboard >/dev/null 2>&1; rc=$?
+  assert_status "exit" 0 "$rc" || return 1
+  assert_contains "split argv" "$(stub_log)" \
+    "<pane> <split> <--current> <--direction> <right> <--cwd> <$FIX>" || return 1
+  assert_not_contains "no reuse send" "$(stub_log)" '<send-text>' || return 1
+  unset HERDR_WORKSPACE_ID HERDR_TAB_ID OPEN_IN_EDITOR_REUSE STUB_PANE_LIST STUB_PROCESS_INFO
+}
+
 # --- run --------------------------------------------------------------------
 run_case "candidates_from: spaces, quotes, punctuation, whitespace" case_candidates_from
 run_case "urldecode: UTF-8 bytes, %20, literal %"                   case_urldecode
@@ -397,6 +479,10 @@ run_case "route: clipboard via --clipboard + OPEN_IN_EDITOR_CLIP"  case_route_cl
 run_case "route: empty clipboard skips (exit 0, no herdr)"         case_route_empty_clipboard
 run_case "guard: missing jq exits non-zero with install hint"      case_guard_missing_jq
 run_case "non-dry: stub pane split + pane run leading space"       case_non_dry_split_and_run
+run_case "#5: split direction env + invalid fallback"             case_split_direction
+run_case "#5: ../ candidate outside pane cwd canonicalizes"        case_path_outside_cwd
+run_case "#4: reuse a vi-family pane in the current tab"         case_reuse_vi_pane
+run_case "#4: OPEN_IN_EDITOR_REUSE=0 restores split-always"      case_reuse_disabled
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
