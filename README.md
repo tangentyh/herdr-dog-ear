@@ -90,6 +90,13 @@ OPEN_IN_EDITOR_SPLIT_DIRECTION=down OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh 
 The value flows into both the real `herdr pane split --direction ...` call and the
 `OPEN_IN_EDITOR_DRY=1` log line.
 
+**Path resolution.** A relative candidate is joined with the pane's cwd and then canonicalized
+(`.`/`..` folded and symlinked directories resolved) before the existence check and before the
+file's directory is used as `--cwd`. So a candidate like `../sibling/file.rs` opens even when it
+lives outside the pane cwd, and the logged path and pane cwd are clean absolute paths rather than
+`<cwd>/../sibling/file.rs`. Canonicalization uses `realpath` only when it is already installed and
+otherwise falls back to `cd ... && pwd -P`, so no new dependency is required.
+
 ## Caveat: bare paths are not detected as links
 
 `src/main.rs:42` in a terminal is **not** a link span, and no `link_handlers` pattern can make it

@@ -87,6 +87,29 @@ urldecode() {
   printf '%s' "$out"
 }
 
+# Canonicalize an absolute path without requiring realpath(1) (often missing
+# on macOS). Resolve the parent directory physically with `cd ... && pwd -P`
+# and reattach the basename, so `.`/`..` and symlinked cwds come out clean and
+# the derived --cwd points at the real directory. realpath(1) is used only when
+# it happens to be present, since it also resolves a symlinked final component.
+# Falls back to the input unchanged if nothing can be resolved.
+canonicalize() {
+  local p=$1 dir base rp
+  [ -n "$p" ] || { printf '%s' "$p"; return 0; }
+  case "$p" in /*) ;; *) printf '%s' "$p"; return 0 ;; esac
+  if command -v realpath >/dev/null 2>&1 && rp=$(realpath "$p" 2>/dev/null) && [ -n "$rp" ]; then
+    printf '%s' "$rp"; return 0
+  fi
+  if [ -d "$p" ]; then
+    (cd "$p" 2>/dev/null && pwd -P) && return 0
+  fi
+  dir=$(dirname "$p"); base=$(basename "$p")
+  if rp=$(cd "$dir" 2>/dev/null && pwd -P); then
+    printf '%s/%s' "$rp" "$base"; return 0
+  fi
+  printf '%s' "$p"
+}
+
 # Resolve a candidate into the globals norm_path/norm_line/norm_col. Returns 0
 # when it names something that exists on disk. A trailing :line or :line:col is
 # peeled off and kept for the editor invocation, not discarded.
@@ -118,6 +141,8 @@ normalize() {
   if [ "${path#/}" = "$path" ]; then
     path="$(pane_cwd)/$path"
   fi
+
+  path=$(canonicalize "$path")
 
   [ -e "$path" ] || return 1
   norm_path=$path
