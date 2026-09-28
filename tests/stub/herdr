@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Test double for the herdr CLI.
+#
+# Records every invocation's argv to $STUB_LOG (one line per call) and emulates
+# just the two subcommands open-in-editor.sh needs: `pane split` prints the JSON
+# shape the script parses, `pane run` succeeds. It never talks to a live herdr
+# session, so tests can exercise the non-dry path safely.
+set -uo pipefail
+
+if [ -z "${STUB_LOG:-}" ]; then
+  printf 'stub-herdr: STUB_LOG is not set\n' >&2
+  exit 3
+fi
+
+# One line per invocation: "INV <arg1> <arg2> ...". Angle brackets preserve
+# argument boundaries (including a leading space in the pane run command).
+{
+  printf 'INV'
+  for a in "$@"; do printf ' <%s>' "$a"; done
+  printf '\n'
+} >> "$STUB_LOG"
+
+case "${1:-} ${2:-}" in
+  "pane split")
+    printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "${STUB_PANE_ID:-wK:p999}"
+    ;;
+  "pane run")
+    ;;
+esac
+
+exit 0
