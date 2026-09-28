@@ -82,19 +82,27 @@ the pane's cwd set to the file's directory. The one exception is a reused editor
 ## Pane reuse
 
 Clicking file after file in one tab used to leave a trail of editor panes. By default the action
-now reuses an editor pane **already running in the current tab** instead of splitting another one:
+now reuses an editor pane **already running in the current tab** instead of splitting another one
+(the reused vim gets a tab per file, so you also get a visible hint of what is open):
 
 1. It lists the panes in this tab (`herdr pane list --workspace "$HERDR_WORKSPACE_ID"`, keeping
    `tab_id == "$HERDR_TAB_ID"`) and asks each one for its foreground process
    (`herdr pane process-info`).
 2. If **exactly one** pane is running `$EDITOR` (basename of its first word — the same rule used
-   for argument mapping), the file opens there. vi-family (`vi`, `vim`, `nvim`, …) receives
-   `:edit <path>` and, when the candidate carried a line/column, `:call cursor(<line>[, <col>])`.
-   Filenames are escaped like vim's `fnameescape()`, so spaces and `%`/`#` survive.
+   for argument mapping), the file opens there. vim and nvim open it in a **tab page** via
+   `:tab drop <path>`, so the tabline shows what is already open and a repeated click jumps to
+   the existing tab instead of stacking duplicates. Minimal builds and traditional `vi`, which
+   have no tabs, fall back to `:edit`. When the candidate carried a line/column the plugin also
+   runs `:call cursor(<line>[, <col>])`. Filenames are escaped like vim's `fnameescape()`, so
+   spaces and `%`/`#` survive.
 3. Otherwise — no editor pane, more than one, or an editor with no generic "open in the running
    instance" protocol — it falls back to the existing split.
 
 Set `OPEN_IN_EDITOR_REUSE=0` to always split, reproducing the previous behavior.
+
+Switch between the opened files with vim's tab commands: `gt`/`gT`, `:tabnext N`, `:tabclose`, or
+`:tabs` to list them. (With the `:edit` fallback on tabless vi, they are hidden buffers instead:
+`:ls`, `:bnext`, `<C-^>`.)
 
 **Reuse is vi-family only, on purpose.** `$EDITOR` values such as `code`, `zed`, or `emacs` can
 open in an existing window, but only by invoking their CLI against that window; there is no

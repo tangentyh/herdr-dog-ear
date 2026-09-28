@@ -2,10 +2,11 @@
 # open-in-editor — herdr plugin action.
 #
 # Ctrl-click a file link, select any text, OR pass --clipboard to read the system
-# clipboard; opens the file in $EDITOR. A vi-family editor already running in the
-# current tab is reused via `:edit`; every other case splits a new pane off the
-# current tab. A trailing :line or :line:col on the candidate is passed to the
-# editor too (vim +<line>, code -g file:line:col, ...).
+# clipboard; opens the file in $EDITOR. A vi-family editor already running in
+# the current tab is reused: vim/nvim open the file in a tab page (`:tab drop`),
+# minimal/traditional vi falls back to `:edit`; every other case splits a new
+# pane off the current tab. A trailing :line or :line:col on the candidate is
+# passed to the editor too (vim +<line>, code -g file:line:col, ...).
 #
 # Context arrives through herdr plugin env vars:
 #   HERDR_PLUGIN_CLICKED_URL   set for link_handlers invocations
@@ -207,9 +208,12 @@ if [ -z "$path" ]; then
 fi
 
 # --- pane reuse -------------------------------------------------------------
-# vi-family editors accept `:edit <file>` inside the running instance, so a
-# click can retarget the editor pane already in this tab instead of splitting a
-# new one. Other editors get the split: there is no generic "open in the running
+# vi-family editors accept an ex command that opens a file inside the running
+# instance, so a click can retarget the editor pane already in this tab instead
+# of splitting a new one. vim/nvim open it in a tab page (`:tab drop` reuses the
+# existing tab when the file is already open, so repeated clicks do not stack
+# duplicates); minimal builds and traditional vi, which lack tabs, fall back to
+# `:edit`. Other editors get the split: there is no generic "open in the running
 # instance" protocol, and sending guessed keystrokes to a foreign TUI is worse
 # than an extra pane. Keys are never sent to an arbitrary pane: the send path is
 # reachable only after find_reusable_pane matched $editor_bin exactly once.
@@ -217,6 +221,15 @@ vi_family() {
   case "$1" in
     vi|vim|nvim|vim.basic|vim.tiny|vim.gtk|vimx|gvim|gview|nvim-qt|vi.basic|vi.tiny)
       return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# vi-family editors with tab pages. vim.tiny/vi.tiny and traditional vi are
+# built without +windows, so they keep the `:edit` fallback.
+vi_tabs() {
+  case "$1" in
+    vim|nvim|vim.basic|vi.basic|vim.gtk|vimx|gvim|gview|nvim-qt) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -309,7 +322,8 @@ reuse_cmd=""
 if [ "${OPEN_IN_EDITOR_REUSE:-1}" != "0" ] && vi_family "$editor_bin" && [ "$HAVE_JQ" = 1 ]; then
   reuse_pane=$(find_reusable_pane "$editor_bin")
   if [ -n "$reuse_pane" ]; then
-    reuse_cmd=":edit $(vim_escape "$path")"
+    if vi_tabs "$editor_bin"; then open_ex=":tab drop"; else open_ex=":edit"; fi
+    reuse_cmd="$open_ex $(vim_escape "$path")"
     if [ -n "$line" ]; then
       if [ -n "$col" ]; then reuse_cmd="$reuse_cmd | call cursor($line,$col)"
       else reuse_cmd="$reuse_cmd | call cursor($line)"; fi
