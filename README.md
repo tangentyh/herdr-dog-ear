@@ -64,6 +64,10 @@ It reads the system clipboard (`pbpaste`, `wl-paste`, `xclip`, or `xsel`) and ru
 extraction as the selection route. If nothing on the clipboard resolves to a file on disk, it
 does nothing. `OPEN_IN_EDITOR_CLIP` overrides the clipboard for testing.
 
+This second action is a workaround, not a preference: herdr does not reliably hand selected text
+to plugins, so the selection route cannot always see it. Once a selection invocation reliably
+carries `.selected_text`, the clipboard action is redundant and can be dropped.
+
 **Line and column.** A trailing `:line` or `:line:col` on any route is passed through to the
 editor rather than dropped, so `src/main.rs:42` opens at line 42. The flag is chosen from
 `$EDITOR`:
