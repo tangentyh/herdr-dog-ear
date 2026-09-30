@@ -156,8 +156,8 @@ never detects a bare path, so such a handler could never fire.
 ## Development
 
 ```sh
-# link / relink (link mode skips [[build]] steps, builds lazily)
-herdr plugin link ~/.config/herdr/plugins/dogear
+# link / relink the working tree (link mode runs no [[build]] steps)
+herdr plugin link ~/path/to/herdr-dog-ear
 herdr plugin list
 herdr plugin action list --plugin dogear
 
