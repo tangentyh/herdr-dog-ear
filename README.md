@@ -41,7 +41,7 @@ terminal mouse reports can't tell Cmd from a plain click.
 [[keys.command]]
 key = "prefix+e"
 type = "plugin_action"
-command = "open-in-editor.edit-file"
+command = "dogear.edit-file"
 description = "open selection in $EDITOR"
 ```
 
@@ -56,7 +56,7 @@ unavailable, copy the path and invoke the clipboard action from a key:
 [[keys.command]]
 key = "prefix+shift+o"
 type = "plugin_action"
-command = "open-in-editor.edit-clipboard"
+command = "dogear.edit-clipboard"
 description = "open clipboard path in $EDITOR"
 ```
 
@@ -157,15 +157,15 @@ never detects a bare path, so such a handler could never fire.
 
 ```sh
 # link / relink (link mode skips [[build]] steps, builds lazily)
-herdr plugin link ~/.config/herdr/plugins/open-in-editor
+herdr plugin link ~/.config/herdr/plugins/dogear
 herdr plugin list
-herdr plugin action list --plugin open-in-editor
+herdr plugin action list --plugin dogear
 
 # after editing the manifest or config.toml
 herdr server reload-config
 
 # what the action actually did
-herdr plugin log list --plugin open-in-editor
+herdr plugin log list --plugin dogear
 
 # dry run without touching panes
 OPEN_IN_EDITOR_DRY=1 bash open-in-editor.sh

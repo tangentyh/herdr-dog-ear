@@ -1,2 +1,5 @@
 .DS_Store
 *.log
+
+# Internal handoff notes — deliberately not published.
+HANDOFF.md
