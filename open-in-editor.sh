@@ -324,10 +324,8 @@ if [ "${OPEN_IN_EDITOR_REUSE:-1}" != "0" ] && vi_family "$editor_bin" && [ "$HAV
   if [ -n "$reuse_pane" ]; then
     if vi_tabs "$editor_bin"; then open_ex=":tab drop"; else open_ex=":edit"; fi
     reuse_cmd="$open_ex $(vim_escape "$path")"
-    if [ -n "$line" ]; then
-      if [ -n "$col" ]; then reuse_cmd="$reuse_cmd | call cursor($line,$col)"
-      else reuse_cmd="$reuse_cmd | call cursor($line)"; fi
-    fi
+    # cursor() needs both args: cursor(42) alone is E474.
+    [ -n "$line" ] && reuse_cmd="$reuse_cmd | call cursor($line,${col:-1})"
   fi
 fi
 

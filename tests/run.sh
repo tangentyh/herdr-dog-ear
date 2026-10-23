@@ -442,7 +442,7 @@ case_reuse_vi_pane() { # #4: a vi-family pane in the current tab is reused
   assert_status "exit" 0 "$rc" || return 1
   assert_contains "reuse logged" "$out" "reused pane wTest:p7" || return 1
   assert_contains "tab drop sent to reused pane" "$(stub_log)" \
-    "<pane> <send-text> <wTest:p7> <:tab drop $FIX/plain.txt | call cursor(42)>" || return 1
+    "<pane> <send-text> <wTest:p7> <:tab drop $FIX/plain.txt | call cursor(42,1)>" || return 1
   assert_not_contains "no split when reused" "$(stub_log)" '<split>' || return 1
   unset HERDR_WORKSPACE_ID HERDR_TAB_ID STUB_PANE_LIST STUB_PROCESS_INFO
 }
